@@ -1,0 +1,144 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Frontdesk HITL - Voice Demo</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: system-ui, -apple-system, Roboto, Arial; padding: 20px; background: #f7f7fb; color: #111; }
+    .card { background: white; padding: 16px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); max-width:800px; margin: 12px auto; }
+    button{ padding:10px 14px; border-radius:8px; border:1px solid #ddd; background:#fff; cursor:pointer; }
+    .log{ white-space:pre-wrap; background:#f0f0f5; padding:10px; border-radius:8px; max-height:240px; overflow:auto; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Frontdesk HITL — Voice Demo</h2>
+    <div>
+      <button id="start-call">Start Simulated Call</button>
+      <button id="speak-status">Speak Status</button>
+      <button id="toggle-listen">Start Listening</button>
+      <button id="simulate-request-help">Simulate "AI needs help"</button>
+    </div>
+    <h3>Transcript & Events</h3>
+    <div id="log" class="log"></div>
+    <h3>Supervisor Panel (local)</h3>
+    <div>
+      <label>Pending request:</label>
+      <div id="pending-request">No pending request</div>
+      <textarea id="supervisor-answer" rows="3" style="width:100%"></textarea>
+      <div style="margin-top:8px">
+        <button id="submit-answer">Submit Answer</button>
+      </div>
+      <h4>Learned Answers</h4>
+      <pre id="kb" class="log">{}</pre>
+    </div>
+  </div>
+<script>
+/* Simple in-memory knowledge base and help-request flow.
+ Uses Web Speech API for TTS (speechSynthesis) and STT (SpeechRecognition).
+ Works in Chrome/Edge (SpeechRecognition is webkitSpeechRecognition).
+*/
+const logEl = document.getElementById('log');
+const kbEl = document.getElementById('kb');
+const pendingEl = document.getElementById('pending-request');
+
+function log(s){ const t = new Date().toLocaleTimeString(); logEl.textContent += `[${t}] `+s+"\n"; logEl.scrollTop = logEl.scrollHeight; }
+
+let KB = {}; // question->answer
+function renderKB(){ kbEl.textContent = JSON.stringify(KB, null, 2); }
+
+function tts(text){
+  if(!('speechSynthesis' in window)){ log("TTS not supported in this browser."); return; }
+  const ut = new SpeechSynthesisUtterance(text);
+  // default voice; user can change in browser
+  speechSynthesis.cancel();
+  speechSynthesis.speak(ut);
+  log("TTS → "+text);
+}
+
+let recognition = null;
+let listening = false;
+if(window.webkitSpeechRecognition || window.SpeechRecognition){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  recognition = new SR();
+  recognition.lang = 'en-US';
+  recognition.interimResults = false;
+  recognition.onresult = (e) => {
+    const txt = Array.from(e.results).map(r=>r[0].transcript).join('');
+    log("STT → "+txt);
+    onUserUtterance(txt);
+  };
+  recognition.onerror = (e) => { log("STT error: "+e.error); }
+  recognition.onend = ()=>{ if(listening) recognition.start(); }
+} else {
+  log("SpeechRecognition API not available in this browser.");
+}
+
+function startListening(){ if(!recognition) return; listening=true; recognition.start(); log("Listening started..."); }
+function stopListening(){ if(!recognition) return; listening=false; recognition.stop(); log("Listening stopped."); }
+
+document.getElementById('toggle-listen').addEventListener('click', (e)=>{
+  if(!listening){ startListening(); e.target.textContent = "Stop Listening"; } else { stopListening(); e.target.textContent = "Start Listening"; }
+});
+
+document.getElementById('start-call').addEventListener('click', ()=>{
+  log("Incoming call simulated.");
+  tts("Hello! Welcome to Friendly Salon. How can I help you today?");
+});
+
+document.getElementById('speak-status').addEventListener('click', ()=>{ tts("System is ready. Press Start Listening to speak."); });
+
+let currentPending = null;
+
+function onUserUtterance(text){
+  // naive intent: if KB has answer, respond; else create pending help request
+  const q = text.trim();
+  // try exact match
+  if(KB[q]){
+    tts("I found an answer: " + KB[q]);
+    log("AI → Replied from KB.");
+  } else {
+    tts("Let me check with my supervisor and get back to you.");
+    createHelpRequest(q);
+  }
+}
+
+function createHelpRequest(question){
+  const id = 'req_' + Date.now();
+  currentPending = { id, question, status: 'pending', createdAt: new Date().toISOString() };
+  pendingEl.textContent = JSON.stringify(currentPending, null, 2);
+  log("Created help request: " + question);
+  // simulate texting supervisor by adding to console / log
+  log("Simulate SMS → Hey supervisor, I need help answering: " + question);
+}
+
+document.getElementById('simulate-request-help').addEventListener('click', ()=>{
+  createHelpRequest("What are your opening hours?");
+});
+
+document.getElementById('submit-answer').addEventListener('click', ()=>{
+  const ans = document.getElementById('supervisor-answer').value.trim();
+  if(!currentPending){ alert("No pending request"); return; }
+  if(!ans){ alert("Provide an answer"); return; }
+  // supervisor resolves
+  currentPending.status = 'resolved';
+  currentPending.answer = ans;
+  currentPending.resolvedAt = new Date().toISOString();
+  // update KB
+  KB[currentPending.question] = ans;
+  renderKB();
+  pendingEl.textContent = "No pending request";
+  log("Supervisor resolved request. Answer: " + ans);
+  // AI follows up to caller immediately
+  tts("Following up: " + ans);
+  // clear
+  currentPending = null;
+  document.getElementById('supervisor-answer').value = "";
+});
+
+renderKB();
+log("Voice demo loaded. Use Start Simulated Call to begin.");
+</script>
+</body>
+</html>
